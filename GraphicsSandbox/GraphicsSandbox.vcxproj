@@ -154,6 +154,7 @@
     <ClInclude Include="D3dCommon.h" />
     <ClInclude Include="d3dx12.h" />
     <ClInclude Include="GraphicsDevice.h" />
+    <ClInclude Include="MappedUploadBuffer.h" />
     <ClInclude Include="RenderingSystem.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="targetver.h" />
@@ -170,6 +171,11 @@
   <ItemGroup>
     <Image Include="GraphicsSandbox.ico" />
     <Image Include="small.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="shaders\shader.hlsl">
+      <FileType>Document</FileType>
+    </Text>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

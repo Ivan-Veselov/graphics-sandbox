@@ -15,6 +15,14 @@ public:
 		return mD3dDevice;
 	}
 
+	void RecordCommandsToCreateDefaultBuffer(
+		ID3D12GraphicsCommandList* cmdList,
+		const void* initData,
+		LONG_PTR byteSize,
+		ComPtr<ID3D12Resource>& defaultBuffer,
+		ComPtr<ID3D12Resource>& uploadBuffer
+	);
+
 private:
 	ComPtr<ID3D12Device> mD3dDevice;
 };
@@ -43,8 +51,8 @@ public:
 
 	WaitableGpuFence& operator = (const WaitableGpuFence&) = delete;
 
-	Label PutLabel(ID3D12CommandQueue *commandQueue);
-	void WaitForLabel(const Label &label);
+	Label PutLabel(ID3D12CommandQueue* commandQueue);
+	void WaitForLabel(const Label& label);
 
 private:
 	ComPtr<ID3D12Fence> mFence;

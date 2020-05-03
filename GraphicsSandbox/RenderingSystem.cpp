@@ -2,8 +2,14 @@
 #include "d3dx12.h"
 
 
+struct Vertex {
+    XMFLOAT3 position;
+    XMFLOAT4 color;
+};
+
+
 RenderingSystem::RenderingSystem(HWND hWnd, UINT width, UINT height)
-: mFence(mDevice) {
+: mFence(mDevice), mConstantBuffer(mDevice, NUMBER_OF_OBJECTS) {
     UINT dxgiFactoryFlags = 0;
 
 	#if	defined(_DEBUG)
@@ -121,6 +127,13 @@ RenderingSystem::RenderingSystem(HWND hWnd, UINT width, UINT height)
         dsvHeapDesc.NodeMask = 0;
         D3D_CHECK(mDevice.GetD3dDevice()->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&mDsvHeap)));
 
+        D3D12_DESCRIPTOR_HEAP_DESC cvbSrvUavHeapDesc;
+        cvbSrvUavHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        cvbSrvUavHeapDesc.NumDescriptors = NUMBER_OF_OBJECTS;
+        cvbSrvUavHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        cvbSrvUavHeapDesc.NodeMask = 0;
+        D3D_CHECK(mDevice.GetD3dDevice()->CreateDescriptorHeap(&cvbSrvUavHeapDesc, IID_PPV_ARGS(&mCbvSrvUavHeap)));
+
         mRtvDescriptorSize = mDevice.GetD3dDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         mDsvDescriptorSize = mDevice.GetD3dDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
         mCbvSrvUavDescriptorSize = mDevice.GetD3dDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -129,6 +142,7 @@ RenderingSystem::RenderingSystem(HWND hWnd, UINT width, UINT height)
     {
         CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
         CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHeapHandle(mDsvHeap->GetCPUDescriptorHandleForHeapStart());
+        CD3DX12_CPU_DESCRIPTOR_HANDLE cbvSrvUavHeapHandle(mCbvSrvUavHeap->GetCPUDescriptorHandleForHeapStart());
 
         for (UINT i = 0; i < SWAP_CHAIN_BUFFERS_COUNT; i++) {
             D3D_CHECK(mSwapChain->GetBuffer(i, IID_PPV_ARGS(&mSwapChainBuffer[i])));
@@ -137,7 +151,18 @@ RenderingSystem::RenderingSystem(HWND hWnd, UINT width, UINT height)
         }
 
         mDevice.GetD3dDevice()->CreateDepthStencilView(mDepthStencilBuffer.Get(), nullptr, dsvHeapHandle);
+
+        for (UINT i = 0; i < NUMBER_OF_OBJECTS; i++) {
+            D3D12_CONSTANT_BUFFER_VIEW_DESC	cbvDesc;
+            cbvDesc.BufferLocation = mConstantBuffer.GetGpuVirtualAddress(i);
+            cbvDesc.SizeInBytes = decltype(mConstantBuffer)::ELEMENT_SIZE_IN_BYTES;
+
+            mDevice.GetD3dDevice()->CreateConstantBufferView(&cbvDesc, cbvSrvUavHeapHandle);
+            cbvSrvUavHeapHandle.Offset(1, mCbvSrvUavDescriptorSize);
+        }
     }
+
+    UploadResources();
 }
 
 
@@ -148,6 +173,14 @@ RenderingSystem::~RenderingSystem() {
 
 
 void RenderingSystem::RenderFrame() {
+    ObjectConstants constants;
+    std::memset(&constants, 0, sizeof(constants));
+    constants.WorldViewProj(0, 0) = 1.0f;
+    constants.WorldViewProj(1, 1) = 1.0f;
+    constants.WorldViewProj(2, 2) = 1.0f;
+    constants.WorldViewProj(3, 3) = 1.0f;
+    mConstantBuffer.UploadValue(0, constants);
+
     D3D_CHECK(mDirectCmdListAlloc->Reset());
     D3D_CHECK(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
@@ -183,6 +216,39 @@ void RenderingSystem::RenderFrame() {
 
     FlushCommandQueue();
     mCurrentBackBufferIndex = mSwapChain->GetCurrentBackBufferIndex();
+}
+
+
+void RenderingSystem::UploadResources() {
+    /*{ { 0.0f, 0.25f * m_aspectRatio, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+    { { 0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+    { { -0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }*/
+
+    std::vector<Vertex> vertices = {
+        {XMFLOAT3(0.0f, 0.25f, 0.0f), XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f)},
+        {XMFLOAT3(0.25f, -0.25f, 0.0f), XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f)},
+        {XMFLOAT3(-0.25f, -0.25f, 0.0f), XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f)}
+    };
+
+    ComPtr<ID3D12Resource> VertexBufferUploader = nullptr;
+
+    D3D_CHECK(mDirectCmdListAlloc->Reset());
+    D3D_CHECK(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
+
+    mDevice.RecordCommandsToCreateDefaultBuffer(
+        mCommandList.Get(),
+        vertices.data(),
+        UINT64(vertices.size()) * sizeof(decltype(vertices)::value_type),
+        mVertexBuffer,
+        VertexBufferUploader
+    );
+
+    D3D_CHECK(mCommandList->Close());
+
+    ID3D12CommandList* ppCommandLists[] = { mCommandList.Get() };
+    mCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+    FlushCommandQueue();
 }
 
 
